@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<div id="messages"></div>
+<form id="message-form">
+  <input type="text" id="message">
+  <button type="submit">Send</button>
+</form>
+
+<script src="/_ah/channel/jsapi"></script>
+<script>
+  window.channel = new goog.appengine.Channel('{{ token }}');
+</script>
+<script src="/static/main.js"></script>
