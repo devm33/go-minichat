@@ -76,6 +76,13 @@ func index(w http.ResponseWriter, r *http.Request) {
 		if err := indexTemplate.Execute(w, token); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
+	} else {
+		l, err := user.LoginURL(c, "/")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, l, 302)
 	}
 }
 
