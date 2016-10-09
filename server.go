@@ -21,6 +21,15 @@ func init() {
 	http.HandleFunc("/_ah/channel/disconnected/", disconnect)
 }
 
+func disconnect(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	userid := r.FormValue("from")
+	if userid != nil {
+		key := datastore.NewKey(c, "ActiveUser", userid, 0, nil)
+		datastore.Delete(c, key)
+	}
+}
+
 func chat(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	u := user.Current(c)
