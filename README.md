@@ -1,6 +1,6 @@
-# Python Minichat
+# Go Minichat
 
-Minimal chat example using python on App Engine.
+Minimal chat example using go on App Engine.
 
 Deployed at <https://python-minichat-145600.appspot.com/>
 
@@ -22,7 +22,7 @@ Once installed run
     
 Login and select the project you just created.
 
-### 2. Create Python Backend
+### 2. Create Go Backend
 
 In your project directory create an `app.yaml` file with the following contents:
 
@@ -262,6 +262,9 @@ Chat.prototype.saveMessage = function(e) {
 ```
 
 ### 4. Test locally
+
+Download and install the App Engine Go SDK from
+<https://cloud.google.com/appengine/docs/go/download>
 
 In the project directory run this command to test your project on your machine:
 
