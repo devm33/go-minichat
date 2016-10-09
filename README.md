@@ -2,7 +2,7 @@
 
 Minimal chat example using go on App Engine.
 
-Deployed at <https://python-minichat-145600.appspot.com/>
+Deployed at <https://go-minichat.appspot.com/>
 
 ### 1. Create Go Backend Application
 
