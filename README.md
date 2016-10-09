@@ -16,9 +16,9 @@ handlers:
 - url: /static
   static_dir: static
 - url: /.*
-  script: server.app
+  script: _go_app
 - url: /_ah/channel/disconnected/
-  script: server.app
+  script: _go_app
 
 inbound_services:
 - channel_presence
