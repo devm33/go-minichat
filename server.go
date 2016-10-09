@@ -2,6 +2,7 @@ package minichat
 
 import (
 	"html/template"
+	"ioutil"
 	"net/http"
 	"time"
 
@@ -21,7 +22,21 @@ func init() {
 }
 
 func chat(w http.ResponseWriter, r *http.Request) {
-
+	c := appengine.NewContext(r)
+	u := user.Current(c)
+	if r.Body != nil {
+		message, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt_msg := fmt.Sprintf("%v: %v", u.String(), message)
+		var actives []ActiveUser
+		_, err := datastore.NewQuery("ActiveUser").GetAll(c, &actives)
+		for _, active := range actives {
+			channel.Send(c, active.Userid, fmt_msg)
+		}
+	}
 }
 
 func index(w http.ResponseWriter, r *http.Request) {
@@ -39,7 +54,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 		a := ActiveUser{
 			Userid: u.ID,
 		}
-		key := datastore.NewKey(c, ActiveUser, u.ID, 0, nil)
+		key := datastore.NewKey(c, "ActiveUser", u.ID, 0, nil)
 		_, err := datastore.Put(c, key, &a)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
