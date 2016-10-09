@@ -1,12 +1,13 @@
 package minichat
 
 import (
+	"fmt"
 	"html/template"
-	"ioutil"
+	"io/ioutil"
 	"net/http"
-	"time"
 
 	"appengine"
+	"appengine/channel"
 	"appengine/datastore"
 	"appengine/user"
 )
@@ -24,9 +25,12 @@ func init() {
 func disconnect(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	userid := r.FormValue("from")
-	if userid != nil {
+	if userid != "" {
 		key := datastore.NewKey(c, "ActiveUser", userid, 0, nil)
-		datastore.Delete(c, key)
+		err := datastore.Delete(c, key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -39,9 +43,9 @@ func chat(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		fmt_msg := fmt.Sprintf("%v: %v", u.String(), message)
+		fmt_msg := fmt.Sprintf("%v: %v", u.String(), string(message))
 		var actives []ActiveUser
-		_, err := datastore.NewQuery("ActiveUser").GetAll(c, &actives)
+		_, err = datastore.NewQuery("ActiveUser").GetAll(c, &actives)
 		for _, active := range actives {
 			channel.Send(c, active.Userid, fmt_msg)
 		}
@@ -54,7 +58,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 	// Check if user is logged in
 	if u != nil {
 		// Create unique chat channel for user and save to active list
-		token, err := channel.Create(c, user.user_id())
+		token, err := channel.Create(c, u.ID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -64,7 +68,7 @@ func index(w http.ResponseWriter, r *http.Request) {
 			Userid: u.ID,
 		}
 		key := datastore.NewKey(c, "ActiveUser", u.ID, 0, nil)
-		_, err := datastore.Put(c, key, &a)
+		_, err = datastore.Put(c, key, &a)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
