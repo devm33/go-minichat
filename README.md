@@ -4,32 +4,13 @@ Minimal chat example using go on App Engine.
 
 Deployed at <https://python-minichat-145600.appspot.com/>
 
-### 1. Create new project on App Engine
-
-Go to <https://console.cloud.google.com> and click on CREATE PROJECT
-
-![create project button](img/create-project-button.png)
-
-Choose a project name for your project:
-
-![new project dialog](img/new-project-dialog.png)
-
-Install the Google Cloud Tools from here <https://cloud.google.com/sdk/docs/>
-
-Once installed run
-
-    gcloud init
-    
-Login and select the project you just created.
-
-### 2. Create Go Backend
+### 1. Create Go Backend Application
 
 In your project directory create an `app.yaml` file with the following contents:
 
 ```yaml
-runtime: python27
-api_version: 1
-threadsafe: true
+runtime: go
+api_version: go1
 
 handlers:
 - url: /static
@@ -41,68 +22,102 @@ handlers:
 
 inbound_services:
 - channel_presence
-
-libraries:
-- name: webapp2
-  version: latest
-- name: jinja2
-  version: latest
 ```
 
-Create a `server.py` file. This will be where the code for your backend python
-application lives. The first it needs to do is import the libraries it will
-need.
+Create a `server.go` file. This will be where the code for your backend go
+application lives. The first it needs to do is set up the imports and initialize
+the web framework.
 
-```python
-import os
-import jinja2
-import webapp2
+```go
+package minichat
 
-from google.appengine.api import channel
-from google.appengine.api import users
-from google.appengine.ext import ndb
+import (
+	"net/http"
+
+	"appengine"
+)
+
+func init() {
+	http.HandleFunc("/", index)
+}
+
+func index(w http.ResponseWriter, r *http.Request) {
+  // TODO
+}
 ```
 
-Next it needs to set up the jinja libaries template system. This will help
-serve and render serve the `index.html` file later on.
+Next we need to add the logic to render the main index page:
 
-```python
-JINJA_ENVIRONMENT = jinja2.Environment(
-    loader=jinja2.FileSystemLoader(os.path.dirname(__file__)),
-    extensions=['jinja2.ext.autoescape'],
-    autoescape=True)
+```go
+func index(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	u := user.Current(c)
+	// Check if user is logged in
+	if u != nil {
+		// Create unique chat channel for user and save to active list
+		token, err := channel.Create(c, u.ID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Add user to active users
+		a := ActiveUser{
+			Userid: u.ID,
+		}
+		key := datastore.NewKey(c, "ActiveUser", u.ID, 0, nil)
+		_, err = datastore.Put(c, key, &a)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := indexTemplate.Execute(w, token); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+var indexTemplate = template.Must(template.New("index").Parse(`
+<!DOCTYPE html>
+<div id="messages"></div>
+<form id="message-form">
+  <input type="text" id="message">
+  <button type="submit">Send</button>
+</form>
+<script src="/_ah/channel/jsapi"></script>
+<script>
+  window.channel = new goog.appengine.Channel('{{.}}');
+</script>
+<script src="/static/main.js"></script>
+`))
 ```
 
-Next we need to add our main application:
+Notice that we are defining our index html contents in our backend code. With a
+larger html page we would want to keep this in a separate file. But since this
+is only a small amount a html it's relatively harmless here. Try researching how
+to load it from an `index.html` file.
 
-```python
-class MainHandler(webapp2.RequestHandler):
-  def get(self):
-    # Check if user is logged in
-    user = users.get_current_user()
-    if user:
-      # Create unique chat channel for user and save to active list
-      token = channel.create_channel(user.user_id())
-      # Add user to active users
-      ActiveUser(userid=user.user_id(), id=user.user_id()).put()
-      # Render index.html for user
-      template = JINJA_ENVIRONMENT.get_template('index.html')
-      self.response.write(template.render({'token': token}))
-    else:
-      self.redirect(users.create_login_url(self.request.uri))
+Now we need to add imports for the libaries used in our `index` handler
+function. Update `import` at the top of the file with:
 
-app = webapp2.WSGIApplication([
-    ('/', MainHandler),
-], debug=True)
+```go
+import (
+	"html/template"
+	"net/http"
+
+	"appengine"
+	"appengine/channel"
+	"appengine/datastore"
+	"appengine/user"
+)
 ```
 
-Now you might notice an `ActiveUser` reference that wasn't defined or imported.
-Let's define it! Before `MainHandler` add:
+Finally note that the `ActiveUser` reference used that wasn't
+defined or imported.  Let's define it! Before `func index` add:
 
-
-```python
-class ActiveUser(ndb.Model):
-  userid = ndb.StringProperty()
+```go
+type ActiveUser struct {
+	Userid string
+}
 ```
 
 This will help keep track of users currently chatting on our site by storing
@@ -112,25 +127,49 @@ Now our app needs a handler for the site to actually send chats to. When a user
 send a chat to the backend this handler will send out that message to each
 currently active user.
 
-```python
-class ChatHandler(webapp2.RequestHandler):
-  def post(self):
-    user = users.get_current_user()
-    message = self.request.body
-    if message:
-      formatted_message = '%s: %s' % (user.nickname(), message)
-      for activeuser in ActiveUser.query():
-        channel.send_message(activeuser.userid, formatted_message)
+```go
+func chat(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	u := user.Current(c)
+	if r.Body != nil {
+		message, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		fmt_msg := fmt.Sprintf("%v: %v", u.String(), string(message))
+		var actives []ActiveUser
+		_, err = datastore.NewQuery("ActiveUser").GetAll(c, &actives)
+		for _, active := range actives {
+			channel.Send(c, active.Userid, fmt_msg)
+		}
+	}
+}
 ```
 
-And register the url for this handler in the `app` creation at the bottom of the
-file.
+Register the url for this handler in the `init` function.
 
-```python
-app = webapp2.WSGIApplication([
-    ('/', MainHandler),
-    ('/chat', ChatHandler),
-], debug=True)
+```go
+func init() {
+	http.HandleFunc("/", index)
+	http.HandleFunc("/chat", chat)
+}
+```
+
+And add the imports for the additional libraries used in the `chat` function:
+
+```go
+import (
+	"fmt"
+	"html/template"
+	"io/ioutil"
+	"net/http"
+
+	"appengine"
+	"appengine/channel"
+	"appengine/datastore"
+	"appengine/user"
+)
 ```
 
 Almost done with the backend, just one more handler. Note that the app adds
@@ -138,59 +177,38 @@ Almost done with the backend, just one more handler. Note that the app adds
 trying to send chat messages to long gone users we need to add a disconnect
 handler.
 
-```python
-class DisconnectHandler(webapp2.RequestHandler):
-  def post(self):
-    userid = self.request.get('from')
-    if userid:
-      ndb.Key(ActiveUser, userid).delete()
+```go
+func disconnect(w http.ResponseWriter, r *http.Request) {
+	c := appengine.NewContext(r)
+	userid := r.FormValue("from")
+	if userid != "" {
+		key := datastore.NewKey(c, "ActiveUser", userid, 0, nil)
+		err := datastore.Delete(c, key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
 ```
 
-Then in the `app` creation add the disconnect url that App Engine uses to notify
-our app that a user disconnected from our channel.
+And add the disconnect url that App Engine uses to notify our app that a user
+disconnected from our channel.
 
-```python
-app = webapp2.WSGIApplication([
-    ('/', MainHandler),
-    ('/chat', ChatHandler),
-    ('/_ah/channel/disconnected/', DisconnectHandler),
-], debug=True)
+```go
+func init() {
+	http.HandleFunc("/", index)
+	http.HandleFunc("/chat", chat)
+	http.HandleFunc("/_ah/channel/disconnected/", disconnect)
+}
 ```
 
-### 3. Create HTML and JavaScript Frontend
-
-Create an `index.html` file with:
-
-- a `div` to display the messages in
-- a `form` to send a chat message
-- a `script` to load `/_ah/channel/jsapi`
-- an inline `script` to initialize the App Engine channel using the token from
-  the backend
-- a `script` to load `/static/main.js`
-
-```html
-<!DOCTYPE html>
-<div id="messages"></div>
-<form id="message-form">
-  <input type="text" id="message">
-  <button type="submit">Send</button>
-</form>
-
-<script src="/_ah/channel/jsapi"></script>
-<script>
-  window.channel = new goog.appengine.Channel('{{ token }}');
-</script>
-<script src="/static/main.js"></script>
-```
-
-The `{{ token }}` is replaced with the unique user token by jinja before the
-`index.html` is sent to the browser.
+### 2. Create JavaScript for the Frontend Application
 
 Now we need to write the JavaScript to send and receive chat messages. Create a
 folder `static` in the project directory then a file in that folder `main.js`.
 
 The first thing to do is create a `Chat` class and bind to the html elements
-from `index.html` and open a connection to the python backend.
+from `index.html` and open a connection to the go backend.
 
 ```js
 // Initializes Chat
@@ -245,7 +263,7 @@ backend.
 In order to send a message to the backend we will have to open a new connection.
 
 ```js
-// Sends user's message to the python backend
+// Sends user's message to the backend
 Chat.prototype.saveMessage = function(e) {
   e.preventDefault();
   // Check that the user entered a message.
@@ -261,7 +279,7 @@ Chat.prototype.saveMessage = function(e) {
 };
 ```
 
-### 4. Test locally
+### 3. Test locally
 
 Download and install the App Engine Go SDK from
 <https://cloud.google.com/appengine/docs/go/download>
@@ -280,7 +298,23 @@ Try opening the page in an incognito window to chat as a new user.
 
 ![screenshot](img/screenshot.png)
 
-### 5. Deploy to App Engine
+### 4. Deploy to App Engine
+
+Go to <https://console.cloud.google.com> and click on CREATE PROJECT
+
+![create project button](img/create-project-button.png)
+
+Choose a project name for your project:
+
+![new project dialog](img/new-project-dialog.png)
+
+Install the Google Cloud Tools from here <https://cloud.google.com/sdk/docs/>
+
+Once installed run
+
+    gcloud init
+
+Login and select the project you just created.
 
 To deploy your app and make it publicly available run
 
