@@ -15,12 +15,16 @@ type ActiveUser struct {
 }
 
 func init() {
-	http.HandleFunc("/", root)
+	http.HandleFunc("/", index)
 	http.HandleFunc("/chat", chat)
 	http.HandleFunc("/_ah/channel/disconnected/", disconnect)
 }
 
-func root(w http.ResponseWriter, r *http.Request) {
+func chat(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func index(w http.ResponseWriter, r *http.Request) {
 	c := appengine.NewContext(r)
 	u := user.Current(c)
 	// Check if user is logged in
@@ -41,7 +45,22 @@ func root(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-
+		if err := indexTemplate.Execute(w, token); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
-
 }
+
+var indexTemplate = template.Must(template.New("index").Parse(`
+<!DOCTYPE html>
+<div id="messages"></div>
+<form id="message-form">
+  <input type="text" id="message">
+  <button type="submit">Send</button>
+</form>
+<script src="/_ah/channel/jsapi"></script>
+<script>
+  window.channel = new goog.appengine.Channel('{{.}}');
+</script>
+<script src="/static/main.js"></script>
+`))
